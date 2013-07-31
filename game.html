@@ -1,0 +1,260 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN"
+   "http://www.w3.org/TR/html4/strict.dtd">
+
+<html lang="en">
+<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+	<title>Play Snake!</title>
+	<meta name="author" content="Samuel Mulqueen">
+	<!-- Date: 2011-09-03 -->
+	<style>
+	body {
+		margin: 0px;
+		overflow: hidden;
+	}
+	canvas {
+		margin: auto auto;
+	}
+	#join_game {
+		background-color: #CCFFCC;
+		width: 80%;
+		height: 40%;
+		position: absolute;
+		left: 10%;
+		top: 30%;
+		padding: 40px;
+		border: 4px solid green;
+	}
+	label{
+		display:block;
+	}
+	.colour_button {
+		width: 80px;
+		height: 80px;
+		border: 1px solid black;
+		float: right;
+	}
+	label, input{
+		clear: both;
+	}
+	</style>
+	<script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+<canvas id="snake_game"></canvas>
+<div id="join_game">
+	<form action="javascript: join_game(this);" id="join_form">
+		<label>Name: <input type="text" name="username"/></label>
+		<label id='colour_choice'>Colour: </label>
+		<input type='hidden' value='-1' id='colour' name='colour' />
+		<input type='submit' value="Start Game"/>
+	</form>
+</div>
+	<script type="text/javascript">
+		var game = document.getElementById('snake_game'),
+			screen_size = 1;
+		var join_form = document.getElementById('join_form');
+		game.width = game.height = window.innerHeight * screen_size;
+		
+		var ctx = game.getContext('2d'),
+			board_size = {{board_size}},
+			grid_size = game.width/board_size,
+			SNAKES = [], FOOD = [];
+		
+		var colours = [{{colours}}],
+			colour_choice = document.getElementById('colour_choice');
+		
+		for(var c=0,col; c<colours.length; c++){
+			col = colours[c];
+			var button = document.createElement('div');
+			button.className = 'colour_button';
+			button.style.backgroundColor = col;
+			button.onclick = (function(a){ return function(){
+				join_form.colour.value = a;
+			}; })(c);
+			colour_choice.appendChild(button);
+		}
+		
+		function Snake(death, name, colour, path){
+			this.death = death || 0;
+			this.name = name;
+			this.colour = colour;
+			this.path = path;
+			
+			this.draw = function(){
+				ctx.save();
+				ctx.globalAlpha = 1/(this.death*2);
+				if(this.path.length){
+					var col = this.colour;
+					this.path.forEach(function(p){
+						p = p.split(',');
+						var x = p[0], y = p[1];
+						draw_square(x*grid_size, y*grid_size, grid_size, col);
+						// Glow
+						(function draw_glow(){
+						ctx.save();
+						for(var i = 0; i<6; i++){
+							ctx.globalAlpha = 0.05*i;
+							draw_square(x*grid_size, y*grid_size, grid_size+(i*2), col);
+						}
+						ctx.restore();
+						});
+					});
+				}
+				ctx.restore();
+			}
+		}
+		
+		//from http://www.linuxtopia.org/online_books/javascript_guides/javascript_faq/rgbtohex.htm
+
+		function RGBtoHex(R,G,B) {return toHex(R)+toHex(G)+toHex(B)}
+
+		function toHex(N) {
+		      if (N==null) return "00";
+		      N=parseInt(N); if (N==0 || isNaN(N)) return "00";
+		      N=Math.max(0,N); N=Math.min(N,255); N=Math.round(N);
+		      return "0123456789ABCDEF".charAt((N-N%16)/16)
+		           + "0123456789ABCDEF".charAt(N%16);
+		}
+		
+		function join_game(){
+			var username = join_form.username.value || 'Guest'+Math.round(Math.random()*12345678),
+				colour = join_form.colour.value;
+			colour = colour==-1?Math.floor(Math.random()*colours.length):colour;
+			socket.emit('join', {sid: SESSION_ID, 'username': username, 'colour': colour});
+		}
+		function draw_game(){
+			ctx.save();
+			ctx.globalAlpha = 0.4;
+			ctx.fillStyle = 'grey';
+			ctx.fillRect(0,0,game.width,game.height);
+			ctx.restore();
+			ctx.save();
+			ctx.translate(grid_size/2, grid_size/2);
+			if(Array.isArray(FOOD) && FOOD.length){
+				FOOD.forEach(function(f){
+					draw_square(grid_size*f[1], grid_size*f[2], grid_size,'white');
+				});
+			}
+			if(Array.isArray(SNAKES) && SNAKES.length){
+				SNAKES.forEach(function(snake){
+					snake = snake.split('|');
+					snake = new Snake(snake.shift(), snake.shift(), snake.shift(), snake);
+					snake.draw();
+				});
+			}
+			ctx.restore();
+		}
+		function draw_square(x,y,width,fillStyle,strokeStyle,lineWidth){
+			x = x || 0;
+			y = y || 0;
+			width = width || 0;
+			
+			var r = width/2
+			ctx.save();
+			ctx.translate(x, y);
+			ctx.beginPath();
+			ctx.moveTo(-r,-r);
+			ctx.lineTo( r,-r);
+			ctx.lineTo( r, r);
+			ctx.lineTo(-r, r);
+			ctx.closePath();
+			
+			if(fillStyle){
+				ctx.fillStyle = fillStyle;
+				ctx.fill();
+			}
+			if(strokeStyle) ctx.strokeStyle = strokeStyle;
+			if(lineWidth){
+				ctx.lineWidth = lineWidth;
+				ctx.stroke();
+			}
+			ctx.restore();
+		}
+		
+		var UPDATE = 0,
+			GAME_STEP = {{GAME_STEP}},
+			SESSION_ID = "{{SESSION_ID}}",
+			last_update = false,
+			KILL = 0;
+		
+		var socket = io.connect();
+		socket.on('connect', function(){
+			join_game();
+		});
+		
+		socket.on('error', function(msg){
+			alert('Error: '+msg);
+		})
+		
+		var count = 0, new_food = [], dead_food = [];
+		
+		function update_game(){
+			count++;
+			if(count%60==0) socket.emit('keep_alive', SESSION_ID);
+			if(KILL) return;
+			
+			var NF = new_food;
+			if(NF.length){
+				NF.forEach(function(F){
+					FOOD.push(F.split('|'));
+				});
+				new_food = [];
+			}
+			var DF = dead_food;
+			if(DF.length){
+				FOOD = FOOD.filter(function(F){
+					return (DF.indexOf(F[0])<0);
+				});
+				dead_food = [];
+			}
+			
+			draw_game();
+		}
+		var update_queue = false,
+			update_interval = 1000/24;
+		
+		window.requestAnimFrame = (function(){
+		return  window.requestAnimationFrame       || 
+			window.webkitRequestAnimationFrame || 
+			window.mozRequestAnimationFrame    || 
+			window.oRequestAnimationFrame      || 
+			window.msRequestAnimationFrame     || 
+			function(/* function */ callback, /* DOMElement */ element){
+				window.setTimeout(callback, update_interval);
+			};
+		})();
+		
+		(function refresh(){
+			update_game();
+			requestAnimFrame(refresh);
+		})();
+		
+		socket.on('update', function (GAME) {
+			if(KILL) return;
+			var S = GAME.snakes.split(';');
+			if(S.length && S[0]!="") SNAKES = S;
+			var NF = GAME.new_food.split(';');
+			if(NF.length && NF[0]!="") new_food = new_food.concat(NF);
+			var DF = GAME.dead_food.split(';');
+			if(DF.length && DF[0]!="") dead_food = dead_food.concat(DF);
+		});
+	
+		socket.on('start', function(player){
+			console.log('starting game')
+			document.getElementById('join_game').style.display = 'none';
+		});
+		socket.on('dead', function(msg){
+			console.log(msg);
+			join_game();
+		});
+		
+		document.addEventListener('keydown', function(e){
+			var keys = [38,39,40,37], dir = keys.indexOf(e.keyCode);
+			if(dir>-1){
+				socket.emit('turn', dir);
+			}
+		});
+	</script>
+</body>
+</html>
